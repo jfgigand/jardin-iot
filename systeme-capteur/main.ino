@@ -8,20 +8,27 @@
 // REQUIRES the following Arduino libraries:
 // - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
 
-#define JARDIN_BOX_ID           0x0a01
-#define PIN_RADIO_RX            4
-#define PIN_RADIO_TX            5
+// #define JARDIN_BOX_ID           0x0a01  // heuchere
+#define JARDIN_BOX_ID           0x0a02  // fond
+#define PIN_RADIO_RX            11
+#define PIN_RADIO_TX            12
 #define PIN_RADIO_PTT           0
-#define PIN_SENSOR_DHT          2
-#define PIN_RAINFALL_SENSOR     3 // for interrupt
-#define PIN_PHOTORESISTOR       0 // ADC
-#define PIN_MOISTURE_SENSOR     1 // ADC
-#define PIN_RAIN_SENSOR         2 // ADC, to fix
+#define PIN_SENSOR_DHT          9
+// #define PIN_RAINFALL_SENSOR     3 // for interrupt
+#define PIN_PHOTORESISTOR       A1 // ADC
+// #define PIN_MOISTURE_SENSOR     A7 // ADC
+// #define PIN_RAIN_SENSOR         A2 // ADC, to fix
 
 #define RADIO_SPEED             2000
 #define RADIO_PTT_INVERTED      false
 #define SENSOR_DHT_TYPE         DHT22   // DHT11, DHT21, DHT22  (AM2302), AM2321
 #define RAINFALL_BOUNCE         0.011   // en litres
+
+#define LED_PIN 2
+#define EVERY_NTH 1
+#define NB_LED 8
+#define BRIGHTNESS 1
+#define NUM_PIXELS      NB_LED
 
 #include "../common/jardin.h"
 
@@ -31,12 +38,14 @@
 #endif
 
 #include "DHT.h"
+#include <Adafruit_NeoPixel.h>
 
 
 RH_ASK radio_ask(RADIO_SPEED, PIN_RADIO_RX, PIN_RADIO_TX,
     PIN_RADIO_PTT, RADIO_PTT_INVERTED);
 
 DHT dht(PIN_SENSOR_DHT, SENSOR_DHT_TYPE);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NB_LED, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 
 void initialize_data_entry(jardin_data_abstract_t *data, jardin_event_type_t type)
@@ -49,7 +58,9 @@ void initialize_data_entry(jardin_data_abstract_t *data, jardin_event_type_t typ
 void transmit_data_entry(jardin_data_abstract_t *data, size_t length)
 {
   radio_ask.send((uint8_t *) data, length);
-  if (!radio_ask.waitPacketSent(1000)) {
+  if (radio_ask.waitPacketSent(/*1000*/)) {
+    // Serial.println(F("successfully sent message"));
+  } else {
     Serial.println(F("failed sending message"));
   }
 }
@@ -110,9 +121,11 @@ void send_adc(const char *label, jardin_event_type_t type, int pin) {
   transmit_data_entry((jardin_data_abstract_t *) &data, sizeof(data));
   Serial.print(F("Sending event "));
   Serial.print(label);
+  Serial.print(" ");
   Serial.println(data.value);
 }
 
+#ifdef PIN_RAINFALL_SENSOR
 jardin_data_mesure_rainfall_t data_rainfall;
 static unsigned long rain_last = 0;
 static unsigned long rain_last_5minutes = 0;
@@ -183,7 +196,27 @@ void init_rainfall()
 
   attachInterrupt(digitalPinToInterrupt(PIN_RAINFALL_SENSOR), irq_rainfall, CHANGE);
 }
+#endif
 
+uint32_t my_color(byte colorWheelPos, float d)
+{
+  uint32_t c1;
+
+  d *= BRIGHTNESS;
+
+  colorWheelPos = 255 - colorWheelPos;
+  if(colorWheelPos < 85) {
+    c1 = strip.Color(d * (255 - colorWheelPos * 3), 0, d * colorWheelPos * 3);
+  } else if(colorWheelPos < 170) {
+    colorWheelPos -= 85;
+    c1 = strip.Color(0, d * (colorWheelPos * 3), d * (255 - colorWheelPos * 3));
+  } else {
+    colorWheelPos -= 170;
+    c1 = strip.Color(d * (colorWheelPos * 3), d * (255 - colorWheelPos * 3), 0);
+  }
+
+  return c1;
+}
 
 void setup()
 {
@@ -195,46 +228,87 @@ void setup()
     Serial.println(F("radio_ask init failed"));
   }
 
+  strip.begin();
   dht.begin();
+#ifdef PIN_RAINFALL_SENSOR
   init_rainfall();
+#endif
 }
 
 static short count = -1;
 
+void loop_led() {
+
+  static uint8_t hue = 0;
+
+  hue += 1;
+
+  float speed = 4; // 4
+  byte colorWheelPos = hue;
+  float n_waves = 50;
+  float sin_offset = 0;
+  float divisor = 1;
+
+  uint16_t idx, ridx;
+  uint32_t c1;
+
+  for (idx = 0; idx < NUM_PIXELS; idx++) {
+
+
+    ridx = NUM_PIXELS - idx;
+
+    float d;
+    d = (float)((ridx + hue) % 15) / 14;
+
+    c1 = my_color(colorWheelPos + (ridx * 120 / NUM_PIXELS), d);
+
+    strip.setPixelColor(idx, c1);
+  }
+  strip.show();
+}
+
 void loop()
 {
-  if (++count >= 10) {
+  // send_adc("photoresistance", MESURE_LIGHT, PIN_PHOTORESISTOR);
+  // send_adc("moisture", MESURE_MOISTURE, PIN_MOISTURE_SENSOR);
+  // send_adc("rain", MESURE_RAIN, PIN_RAIN_SENSOR);
+  // send_temperature();
+  // send_humidity();
+
+  if (++count >= 100) {
     count = 0;
   }
   switch (count) {
-  case 0:
+  case 10:
     send_uptime();
     break;
-  case 1:
+  case 20:
     send_temperature();
+    break;
+  case 30:
     send_humidity();
     break;
-  case 2:
-    break;
-  case 3:
+  case 40:
     send_adc("photoresistance", MESURE_LIGHT, PIN_PHOTORESISTOR);
     break;
-  case 4:
+  case 50:
+#ifdef PIN_MOISTURE_SENSOR
     send_adc("moisture", MESURE_MOISTURE, PIN_MOISTURE_SENSOR);
+#endif
     break;
-  case 5:
+  case 60:
+#ifdef PIN_RAIN_SENSOR
     send_adc("rain", MESURE_RAIN, PIN_RAIN_SENSOR);
+#endif
     break;
-  case 6:
-    break;
-  case 7:
-    break;
-  case 8:
-    break;
-  case 9:
-    rainfall_send();
+  case 70:
+#ifdef PIN_RAINFALL_SENSOR
+    // rainfall_send();
+#endif
     break;
   }
 
-  delay(1000);
+  loop_led();
+
+  delay(50);
 }

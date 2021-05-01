@@ -1,0 +1,9 @@
+
+jardin   capt peta temp value (float=4 bytes)
+43b2568a 0300 020a 6500 0000a441 16
+PUTVAL "jardin/temperature-petaouchnok/temperature" N:20.500000
+
+jardin   capt peta upt  value
+43b2568a 0300 020a 0100 c8000000
+PUTVAL "jardin/uptime-petaouchnok/uptime" N:200
+
