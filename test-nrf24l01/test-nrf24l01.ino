@@ -6,31 +6,26 @@ void setup() {
   Serial.begin(115200);
   while (!Serial)
     ; // wait for serial port to connect. Needed for Leonardo only
-  if (!nrf24.init()) 
-  {
+  if (!nrf24.init()) {
     Serial.println("init failed");
- 
   }
   // Defaults after init are 2.402 GHz (channel 2), 2Mbps, 0dBm
-  if (!nrf24.setChannel(3)) 
-  {
+  if (!nrf24.setChannel(1)) {
     Serial.println("setChannel failed");
   }
-  if (!nrf24.setRF(RH_NRF24::DataRate2Mbps, RH_NRF24::TransmitPower0dBm)) {
+  if (!nrf24.setRF(RH_NRF24::DataRate250kbps, RH_NRF24::TransmitPower0dBm)) {
     Serial.println("setRF failed");
   }
   Serial.println("Transmitter started");
-
 }
 
-
 void loop() {
-Serial.println("Sending to gateway");
-  char data[]     = "Coucou";
+  //Serial.println("Sending to gateway");
+  char data[] = "Patate";
   
-  Serial.print("INFO: ");
-  Serial.print(data );
-  Serial.println(sizeof(data));
+  Serial.print("SEND: ");
+  Serial.print(data);
+  Serial.println();
  
   nrf24.send((uint8_t*) data, sizeof(data));
   nrf24.waitPacketSent();
@@ -42,7 +37,7 @@ Serial.println("Sending to gateway");
   if (nrf24.waitAvailableTimeout(1000)) {
     // Should be a reply message for us now
     if (nrf24.recv(buf, &len)) {
-      Serial.print("got reply: ");
+      Serial.print("REPLY: ");
       Serial.println((char*)buf);
     }
     else {
@@ -50,7 +45,7 @@ Serial.println("Sending to gateway");
     }
   }
   else {
-    Serial.println("No reply.");
+    Serial.println("REPLY: ");
   }
   delay(2000);
 }
