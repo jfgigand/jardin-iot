@@ -29,36 +29,28 @@ Serial.println("Sending to gateway");
   char data[]     = "Coucou";
   
   Serial.print("INFO: ");
-  Serial.print(data);
-  Serial.println();
+  Serial.print(data );
+  Serial.println(sizeof(data));
  
-  nrf24.send((uint8_t*) data, sizeof(*data));
+  nrf24.send((uint8_t*) data, sizeof(data));
   nrf24.waitPacketSent();
   
   // Now wait for a reply
   uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];
   uint8_t len = sizeof(buf);
  
-  if (nrf24.waitAvailableTimeout(1000))
-  {
+  if (nrf24.waitAvailableTimeout(1000)) {
     // Should be a reply message for us now
-    if (nrf24.recv(buf, &len))
-    {
-     
+    if (nrf24.recv(buf, &len)) {
       Serial.print("got reply: ");
       Serial.println((char*)buf);
     }
-    else
-    {
-     
+    else {
       Serial.println("recv failed");
     }
   }
-  else
-  {
+  else {
     Serial.println("No reply.");
-    
   }
-
   delay(2000);
 }
