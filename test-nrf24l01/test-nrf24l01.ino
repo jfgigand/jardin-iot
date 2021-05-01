@@ -1,58 +1,31 @@
-/*
-    This sketch sends a string to a TCP server, and prints a one-line response.
-    You must run a TCP server in your local network.
-    For example, on Linux you can use this command: nc -v -l 3000
-*/
-
-#include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-
 #include <RH_NRF24.h>
  
 RH_NRF24 nrf24(2, 4);
 
-#ifndef STASSID
-#define STASSID "acacia-relay"
-#define STAPSK  "15233051"
-#endif
-
-const char* ssid     = STASSID;
-const char* password = STAPSK;
-
-const char* host = "192.168.1.24";
-const uint16_t port = 5858;
-
-ESP8266WiFiMulti WiFiMulti;
-
 void setup() {
   Serial.begin(115200);
-
-  // We start by connecting to a WiFi network
-  WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP(ssid, password);
-
-  Serial.println();
-  Serial.println();
-  Serial.print("Wait for WiFi... ");
-
-  while (WiFiMulti.run() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
+  while (!Serial)
+    ; // wait for serial port to connect. Needed for Leonardo only
+  if (!nrf24.init()) 
+  {
+    Serial.println("init failed");
+ 
   }
+  // Defaults after init are 2.402 GHz (channel 2), 2Mbps, 0dBm
+  if (!nrf24.setChannel(3)) 
+  {
+    Serial.println("setChannel failed");
+  }
+  if (!nrf24.setRF(RH_NRF24::DataRate2Mbps, RH_NRF24::TransmitPower0dBm)) {
+    Serial.println("setRF failed");
+  }
+  Serial.println("Transmitter started");
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  delay(500);
 }
 
 
 void loop() {
-
-  
-  Serial.println("Sending to gateway");
+Serial.println("Sending to gateway");
   char data[]     = "Coucou";
   
   Serial.print("INFO: ");
@@ -87,5 +60,5 @@ void loop() {
     
   }
 
-  delay(5000);
+  delay(2000);
 }
