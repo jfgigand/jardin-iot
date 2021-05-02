@@ -9,6 +9,8 @@
 // (32 bits non signés)
 #define JARDIN_ID       0x8a56b243
 
+#define JARDIN_NRF24_CHANNEL 1
+
 /* #define JARDIN_BOX_TYPE_CUVE 1 */
 /* #define JARDIN_BOX_TYPE_VANNE 2 */
 /* #define JARDIN_BOX_TYPE_CAPTEUR 3 */

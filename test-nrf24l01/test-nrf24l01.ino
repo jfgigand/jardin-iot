@@ -17,20 +17,26 @@ void setup() {
   Serial.println("Transmitter started");
 }
 
+int count = 0;
+
 void loop() {
   //Serial.println("Sending to gateway");
-  char data[] = "Patate";
-
-#define RECV
+  char data[64]; //= "Patate";
+  String message;
+  count++;
+#define EMIT
 #ifdef EMIT
+  message = "Patate ";
+  message.concat(count);
+  message.toCharArray(data, sizeof(data));
+  
   Serial.print("SEND: ");
-  Serial.print(data);
-  Serial.println();
+  Serial.println(message);
  
-  nrf24.send((uint8_t*) data, sizeof(data));
+  nrf24.send((uint8_t*) data, strlen(data) + 1);
   nrf24.waitPacketSent();
 # ifndef RECV
-  delay(1000);
+  delay(100);
 # endif
 #endif
 #ifdef RECV

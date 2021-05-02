@@ -3,9 +3,17 @@
  * echo bonjour >/dev/udp/195.154.46.26/8888
 */
 
+// #define JARDIN_USE_RF433
+#define JARDIN_NRF24_PIN_CE 2
+#define JARDIN_NRF24_PIN_CSN 4
+
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
-#include <RH_ASK.h>
+#ifdef JARDIN_USE_RF433
+# include <RH_ASK.h>
+#else
+# include <RH_NRF24.h>
+#endif
 #include "jardin.h"
 
 
@@ -17,6 +25,10 @@
 //#define STAPSK  "47082351"
 #endif
 
+// Chip enable
+// Slave select
+
+
 const char* ssid     = STASSID;
 const char* password = STAPSK;
 
@@ -24,7 +36,11 @@ IPAddress udpDestIP(195, 154, 46, 26);
 unsigned int udpDestPort = 8888;
 WiFiUDP udp;
 
-RH_ASK driver(2000, 4);
+#ifdef JARDIN_USE_RF433
+RH_ASK radio(2000, 4);
+#else
+RH_NRF24 radio(JARDIN_NRF24_PIN_CE, JARDIN_NRF24_PIN_CSN);
+#endif
 
 void sendUdp(jardin_data_abstract_t *data, size_t size)
 {
@@ -66,7 +82,34 @@ void send_wifi_signal() {
   data_wifi.strength = WiFi.RSSI();
   Serial.print(F("signal strength (RSSI): "));
   Serial.println(data_wifi.strength);
-  sendUdp((jardin_data_abstract_t *)&data_wifi, sizeof(data_wifi));  
+  sendUdp((jardin_data_abstract_t *)&data_wifi, sizeof(data_wifi));
+}
+
+void setup_radio()
+{
+#ifdef JARDIN_USE_RF433
+  if (radio.init()) {
+    Serial.println("RF433 init successfully");
+    radio.setModeRx();
+  } else {
+    Serial.println("RF433 init failed");
+  }
+#else
+  Serial.println("NRF433...");
+  if (radio.init()) {
+    Serial.println("NRF433 init successfully");
+    if (!radio.setChannel(JARDIN_NRF24_CHANNEL)) {
+      Serial.println("NRF433 setChannel failed");
+    }
+    if (!radio.setRF(RH_NRF24::DataRate250kbps, RH_NRF24::TransmitPower0dBm)) {
+      Serial.println("NRF433 setRF failed");
+    }
+    Serial.println("NRF433 started");
+
+  } else {
+    Serial.println("NRF433 init failed");
+  }
+#endif
 }
 
 void setup() {
@@ -95,26 +138,23 @@ void setup() {
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-
-  if (driver.init()) {
-    Serial.println("RF433 init successfully");
-    driver.setModeRx();
-  } else {
-    Serial.println("RF433 init failed");
-  }
-
+  setup_radio();
 }
 
 void loop() {
+#ifdef JARDIN_USE_RF433
   uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
+#else
+  uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];
+#endif
   uint8_t buflen = sizeof(buf);
 
-  if (driver.waitAvailableTimeout(1000)) {
-    if (driver.recv(buf, &buflen)) {
+  if (radio.waitAvailableTimeout(1000)) {
+    if (radio.recv(buf, &buflen)) {
       int i;
 
       // Message with a good checksum received, dump it.
-      driver.printBuffer("Got:", buf, buflen);
+      radio.printBuffer("Got:", buf, buflen);
 
       udp.beginPacket(udpDestIP, udpDestPort);
       udp.write(buf, buflen);
@@ -127,5 +167,5 @@ void loop() {
     Serial.println("silence!");
   }
   send_uptime();
-  send_wifi_signal();  
+  send_wifi_signal();
 }

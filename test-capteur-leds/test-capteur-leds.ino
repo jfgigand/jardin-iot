@@ -8,6 +8,8 @@
 // REQUIRES the following Arduino libraries:
 // - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
 
+// #define JARDIN_USE_RF433
+
 // #define JARDIN_BOX_ID           0x0a01  // heuchere
 #define JARDIN_BOX_ID           0x0a02  // fond
 #define PIN_RADIO_RX            11
@@ -18,6 +20,8 @@
 #define PIN_PHOTORESISTOR       A1 // ADC
 // #define PIN_MOISTURE_SENSOR     A7 // ADC
 // #define PIN_RAIN_SENSOR         A2 // ADC, to fix
+#define JARDIN_NRF24_PIN_CE 1
+#define JARDIN_NRF24_PIN_CSN 4
 
 #define RADIO_SPEED             2000
 #define RADIO_PTT_INVERTED      false
@@ -30,9 +34,7 @@
 #define BRIGHTNESS 1
 #define NUM_PIXELS      NB_LED
 
-#include "../common/jardin.h"
-
-#include <RH_ASK.h>
+#include <RH_NRF24.h>
 #ifdef RH_HAVE_HARDWARE_SPI
 #include <SPI.h> // Not actually used but needed to compile
 #endif
@@ -40,9 +42,10 @@
 #include "DHT.h"
 #include <Adafruit_NeoPixel.h>
 
+#include "jardin.h"
 
-RH_ASK radio_ask(RADIO_SPEED, PIN_RADIO_RX, PIN_RADIO_TX,
-    PIN_RADIO_PTT, RADIO_PTT_INVERTED);
+
+RH_NRF24 radio(JARDIN_NRF24_PIN_CE, JARDIN_NRF24_PIN_CSN);
 
 DHT dht(PIN_SENSOR_DHT, SENSOR_DHT_TYPE);
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NB_LED, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -51,18 +54,12 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NB_LED, LED_PIN, NEO_GRB + NEO_KHZ80
 void initialize_data_entry(jardin_data_abstract_t *data, jardin_event_type_t type)
 {
   data->jardin_id = JARDIN_ID;
-  data->box_type = CAPTEUR;
+  data->box_type = BOX_TYPE_CAPTEUR;
   data->box_id = JARDIN_BOX_ID;
   data->event_type = type;
 }
 void transmit_data_entry(jardin_data_abstract_t *data, size_t length)
 {
-  radio_ask.send((uint8_t *) data, length);
-  if (radio_ask.waitPacketSent(/*1000*/)) {
-    // Serial.println(F("successfully sent message"));
-  } else {
-    Serial.println(F("failed sending message"));
-  }
 }
 
 void send_uptime() {
@@ -71,7 +68,7 @@ void send_uptime() {
   unsigned long milliseconds = millis();
   jardin_data_uptime_t data_uptime;
 
-  initialize_data_entry((jardin_data_abstract_t *) &data_uptime, UPTIME);
+  initialize_data_entry((jardin_data_abstract_t *) &data_uptime, EVENT_TYPE_UPTIME);
   if (milliseconds < last_millis) {
     millis_cycle++;
     last_millis = milliseconds;
@@ -83,13 +80,14 @@ void send_uptime() {
   transmit_data_entry((jardin_data_abstract_t *) &data_uptime, sizeof(data_uptime));
 }
 
+float temperature = 0;
 // http://idehack.com/blog/tutoriel-arduino-mesure-de-temperature-et-dhumidite-avec-larduino/
 void send_temperature() {
   jardin_data_mesure_temperature_t data_temp;
 
-  initialize_data_entry((jardin_data_abstract_t *) &data_temp, MESURE_TEMPERATURE);
+  initialize_data_entry((jardin_data_abstract_t *) &data_temp, EVENT_TYPE_TEMPERATURE);
   data_temp.sensor_type = SENSOR_DHT_TYPE;
-  data_temp.temperature = dht.readTemperature();
+  data_temp.temperature = temperature = dht.readTemperature();
   if (isnan(data_temp.temperature)) {
     Serial.println("Failed to read temperature from DHT sensor!");
   } else {
@@ -98,12 +96,13 @@ void send_temperature() {
   }
   transmit_data_entry((jardin_data_abstract_t *) &data_temp, sizeof(data_temp));
 }
+float humidite = 0;
 void send_humidity() {
   jardin_data_mesure_humidity_t data_humid;
 
-  initialize_data_entry((jardin_data_abstract_t *) &data_humid, MESURE_HUMIDITY);
+  initialize_data_entry((jardin_data_abstract_t *) &data_humid, EVENT_TYPE_HUMIDITY);
   data_humid.sensor_type = SENSOR_DHT_TYPE;
-  data_humid.humidity = dht.readHumidity();
+  data_humid.humidity = humidite = dht.readHumidity();
   if (isnan(data_humid.humidity)) {
     Serial.println("Failed to read humidity from DHT sensor!");
   } else {
@@ -112,12 +111,14 @@ void send_humidity() {
   }
   transmit_data_entry((jardin_data_abstract_t *) &data_humid, sizeof(data_humid));
 }
-void send_adc(const char *label, jardin_event_type_t type, int pin) {
+int adc_value;
+
+float send_adc(const char *label, jardin_event_type_t type, int pin) {
   jardin_data_mesure_adc_t data;
 
   initialize_data_entry((jardin_data_abstract_t *) &data, type);
 
-  data.value = analogRead(pin);
+  data.value = adc_value = analogRead(pin);
   transmit_data_entry((jardin_data_abstract_t *) &data, sizeof(data));
   Serial.print(F("Sending event "));
   Serial.print(label);
@@ -181,7 +182,7 @@ void init_rainfall()
 {
   int i;
 
-  initialize_data_entry((jardin_data_abstract_t *) &data_rainfall, MESURE_RAINFALL);
+  initialize_data_entry((jardin_data_abstract_t *) &data_rainfall, EVENT_TYPE_RAINFALL);
   for (i = 0; i < 12; i++) {
     data_rainfall.rainfall_5minutes[i] = -1;
   }
@@ -198,6 +199,9 @@ void init_rainfall()
 }
 #endif
 
+/**
+ * 0=red, 65=vert, 85=turquoise
+ */
 uint32_t my_color(byte colorWheelPos, float d)
 {
   uint32_t c1;
@@ -218,15 +222,29 @@ uint32_t my_color(byte colorWheelPos, float d)
   return c1;
 }
 
+void setup_radio()
+{
+  if (radio.init()) {
+    Serial.println("NRF433 init successfully");
+    if (!radio.setChannel(JARDIN_NRF24_CHANNEL)) {
+      Serial.println("NRF433 setChannel failed");
+    }
+    if (!radio.setRF(RH_NRF24::DataRate250kbps, RH_NRF24::TransmitPower0dBm)) {
+      Serial.println("NRF433 setRF failed");
+    }
+    Serial.println("NRF433 started");
+
+  } else {
+    Serial.println("NRF433 init failed");
+  }
+}
+
 void setup()
 {
   Serial.begin(9600);
   Serial.println(F("systeme-capteur"));
-  if (radio_ask.init()) {
-    radio_ask.setModeTx();
-  } else {
-    Serial.println(F("radio_ask init failed"));
-  }
+
+  setup_radio();
 
   strip.begin();
   dht.begin();
@@ -236,6 +254,8 @@ void setup()
 }
 
 static short count = -1;
+static short displayCount = -1;
+#define INTERVAL 40
 
 void loop_led() {
 
@@ -251,16 +271,34 @@ void loop_led() {
 
   uint16_t idx, ridx;
   uint32_t c1;
+  float pos;
 
   for (idx = 0; idx < NUM_PIXELS; idx++) {
 
-
+    c1 = 0;
     ridx = NUM_PIXELS - idx;
+    
+//    if (count >= INTERVAL) {
+//      if (count < INTERVAL * 2) {
+//        pos = (float)(count - INTERVAL * 1) / INTERVAL;
+//        if (pos < 0.2) {
+//          c1 = my_color(0, 0.5);
+//        } else if (pos > 0.4 && pos < 0.8) {
+//          c1 = my_color(65 - (temperature - 20) * 10, 1);
+//        }
+//        //c1 = my_color(colorWheelPos + (ridx * 120 / NUM_PIXELS), d);
+//      } else if (count < INTERVAL * 3) {
+//      }
+//    }
 
-    float d;
-    d = (float)((ridx + hue) % 15) / 14;
+//    c1 = my_color(65 - (temperature - 20) * 10, 1); // OK
+    //c1 = my_color(128 - (humidite - 50) * 128 / 50, 1); // probably
+    c1 = my_color(adc_value / 4, 1); 
 
-    c1 = my_color(colorWheelPos + (ridx * 120 / NUM_PIXELS), d);
+//    ridx = NUM_PIXELS - idx;
+//    float d;
+//    d = (float)((ridx + hue) % 15) / 14;
+//    c1 = my_color(colorWheelPos + (ridx * 120 / NUM_PIXELS), d);
 
     strip.setPixelColor(idx, c1);
   }
@@ -269,44 +307,16 @@ void loop_led() {
 
 void loop()
 {
-  // send_adc("photoresistance", MESURE_LIGHT, PIN_PHOTORESISTOR);
-  // send_adc("moisture", MESURE_MOISTURE, PIN_MOISTURE_SENSOR);
-  // send_adc("rain", MESURE_RAIN, PIN_RAIN_SENSOR);
-  // send_temperature();
-  // send_humidity();
-
-  if (++count >= 100) {
-    count = 0;
-  }
-  switch (count) {
-  case 10:
-    send_uptime();
-    break;
-  case 20:
-    send_temperature();
-    break;
-  case 30:
-    send_humidity();
-    break;
-  case 40:
-    send_adc("photoresistance", MESURE_LIGHT, PIN_PHOTORESISTOR);
-    break;
-  case 50:
-#ifdef PIN_MOISTURE_SENSOR
-    send_adc("moisture", MESURE_MOISTURE, PIN_MOISTURE_SENSOR);
-#endif
-    break;
-  case 60:
+//    send_temperature();
+//    send_humidity();
+    send_adc("photoresistance", EVENT_TYPE_LIGHT, PIN_PHOTORESISTOR);
+//    send_adc("moisture", EVENT_TYPE_MOISTURE, PIN_MOISTURE_SENSOR);
 #ifdef PIN_RAIN_SENSOR
-    send_adc("rain", MESURE_RAIN, PIN_RAIN_SENSOR);
+//    send_adc("rain", EVENT_TYPE_RAIN, PIN_RAIN_SENSOR);
 #endif
-    break;
-  case 70:
 #ifdef PIN_RAINFALL_SENSOR
     // rainfall_send();
 #endif
-    break;
-  }
 
   loop_led();
 
